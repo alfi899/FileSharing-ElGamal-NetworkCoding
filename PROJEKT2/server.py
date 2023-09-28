@@ -9,7 +9,7 @@ import sympy
 import itertools
 
 
-from helper import ServerRunning, p2p, Message
+from helper import p2p, Message
 from elgamal import Gamal
 
 HEADERSIZE = 10
@@ -43,7 +43,6 @@ class StartGenesisNode:
         print("[*] Server Node Started")
         print(f"[*] My Address {self.s.getsockname()}")
 
-        ServerRunning.isRunning = True
         
 
 
@@ -58,6 +57,10 @@ class StartGenesisNode:
             self.peers.append(a)
             print(f"Got connection from {a}")
             print(self.peers)
+            # Check for intermediate (at least two incomming connections)
+            # If connection len(list) >= 3, (2 incomming, 1 outcomming)
+            if len(p2p.connections) >= 3:
+                self.intermediate_node = True
 
 
     def send_linear_combinations(self, conn):
@@ -66,18 +69,18 @@ class StartGenesisNode:
             If we have a list of 4 packets, we need to create 4 different linear combinations
             and send them all out.
         """
-        print("PACKET BUFFER: ", self.packet_buffer)
+        #print("PACKET BUFFER: ", self.packet_buffer)
         packets = self.packet_buffer
         for i in range(0, len(packets)):
             c1, c2, x = self.compute_linear_combinations(packets)
             # Send combinations 
-            print(f"LC_Packet: {c1, c2}, exponents: {x}")
+            #print(f"LC_Packet: {c1, c2}, exponents: {x}")
             linear_combination = {"PACKET": (c1, c2), "exponents": x, "LC": 1, "key": self.elgamal.private_key, "p": self.elgamal.p, "format": self.file_format, "LC_Num": len(packets)}
             serialized_message = pickle.dumps(linear_combination)
             serialized_message = bytes(f"{len(serialized_message):<{HEADERSIZE}}", 'utf-8')+serialized_message
             for p in p2p.connections:
                 try:
-                    if p != self.s and p != conn:
+                    if p != conn:
                         p.send(serialized_message)
                         #print("SEND LINEAR COMBINATION")
                         time.sleep(0.3)
@@ -124,10 +127,8 @@ class StartGenesisNode:
         
         """
         dec = [self.elgamal.decryption(lc[i][0], lc[i][1], self.elgamal.private_key) for i in range(len(lc))]
-        #print("DEC:  ", dec)
         m = sympy.Matrix(matrix)
         matrix_inverse = m.inv_mod(self.elgamal.q)
-        #print("INVERSE MATRIX: ", matrix_inverse)
         X = self.calculate_results(dec, matrix_inverse, p)
         return X
     
@@ -186,11 +187,12 @@ class StartGenesisNode:
                 self.matrix.pop(0)
             self.lc_puffer = []
         self.lc_puffer.append(message["PACKET"])
-        print(f"MATRIX: {self.matrix}")
+        #print(f"MATRIX: {self.matrix}")
         ma = np.array(self.matrix)
         rank = np.linalg.matrix_rank(ma)
         total_number = message["LC_Num"]
         if rank % self.elgamal.q == total_number:
+            print("We have enough combinations")
             Message.message = self.recalculate_result(self.lc_puffer, self.matrix, self.elgamal.p)
             Message.message_ready = True
             
@@ -241,11 +243,15 @@ class StartGenesisNode:
                             Message.format = message["format"]
                             Message.message = self.dec_list
                             Message.message_ready = True
+                            self.packet_buffer = []
+                            self.matrix = []
+                            self.dec_list = []
                         for p in p2p.connections:
                             if p != c:
                                 p.send(serialized_message)
                                 time.sleep(0.1)
                     elif self.intermediate_node == True:
+                        print("INTERMEDIATE NODE")
                         self.elgamal_key = message["key"]
                         self.number_of_packets = message["N"]
                         self.file_format = message["format"]

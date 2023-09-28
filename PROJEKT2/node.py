@@ -3,14 +3,12 @@ import socket
 import threading
 import time
 import pickle
-import ast
 import numpy as np
-import json
 import sympy
 import itertools
 import random
 
-from helper import p2p, ServerRunning, Message
+from helper import p2p, Message
 from elgamal import Gamal
 
 HEADERSIZE = 10
@@ -73,25 +71,27 @@ class Peer:
                 self.intermediate_node = True
 
 
-    def send_linear_combinations(self, conn):
+    def send_linear_combinations(self, conn, packets):
         """ Send the linear combinations of the sofar collected encrypted packets
             In the "self.packer_buffer" are the collected packets.
             If we have a list of 4 packets, we need to create 4 different linear combinations
             and send them all out.
         """
-        packets = self.packet_buffer
+        #packets = self.packet_buffer
         for i in range(0, len(packets)):
             c1, c2, x = self.compute_linear_combinations(packets)
             linear_combination = {"PACKET": (c1, c2), "exponents": x, "LC": 1, "key": self.elgamal.private_key, "p": self.elgamal.p, "format": self.file_format, "LC_Num": self.number_of_packets_1+self.number_of_packets_2}
             serialized_message = pickle.dumps(linear_combination)
             serialized_message = bytes(f"{len(serialized_message):<{HEADERSIZE}}", 'utf-8')+serialized_message
+            
             for p in p2p.connections:
                 try:
                     if p != self.s and p != conn:
                         p.send(serialized_message)
-                        time.sleep(0.1)
+                        #time.sleep(0.1)
                 except:
                     print("Failed to send LC")
+
 
 
     def compute_linear_combinations(self, packets):
@@ -107,6 +107,7 @@ class Peer:
             
             3. Return the new list with the linear combination and the used exponents
         """
+        #for i in range(0, len(packets)):
         exp_list = []
         e = []
         c1 = 1
@@ -133,10 +134,8 @@ class Peer:
         
         """
         dec = [self.elgamal.decryption(lc[i][0], lc[i][1], self.elgamal.private_key) for i in range(len(lc))]
-        #print("DEC:  ", dec)
         m = sympy.Matrix(matrix)
         matrix_inverse = m.inv_mod(self.elgamal.q)
-        #print("INVERSE MATRIX: ", matrix_inverse)
         X = self.calculate_results(dec, matrix_inverse, p)
         return X
     
@@ -193,20 +192,18 @@ class Peer:
         if len(ma) > len(self.matrix[0]):
             for i in range(0, len(self.matrix[0])):
                 self.matrix.pop(0)
+                #print("MATRix here: ", self.matrix)
             self.lc_puffer = []
+        #    self.matrix = []
         self.lc_puffer.append(message["PACKET"])
-        print(f"MATRIX: {self.matrix}")
+        #self.matrix.append(ma)
+        #print(f"MATRIX: {self.matrix}")
         ma = np.array(self.matrix)
         rank = np.linalg.matrix_rank(ma)
         total_number = message["LC_Num"]
-        #print("TOTAL NUMBER", total_number)
         if rank % self.elgamal.q == total_number:
-            #print("WE HAVE ENOUGH")
-            #print("LC_PUFFER: ", self.lc_puffer)
             Message.message = self.recalculate_result(self.lc_puffer, self.matrix, self.elgamal.p)
             Message.message_ready = True
-            #print(X)
-            # Message.message....
 
 
     def handle2(self):
@@ -241,10 +238,12 @@ class Peer:
                     print(f"Message from {self.s.getpeername()}")
                     is_lc = message["LC"]
 
+                    #print("HEERE")
+                    
                     if is_lc == 1:
+                        #print("HIIIIER")
                         # We have a linear combination
                         self.decode_linear_combinations(message)
-                    
                     
                     elif self.intermediate_node == False:
                         # just keep sending normal packets
@@ -258,10 +257,13 @@ class Peer:
                             Message.format = message["format"]
                             Message.message = self.dec_list
                             Message.message_ready = True
+                            self.packet_buffer = []
+                            self.matrix = []
+                            self.dec_list = []
                         for p in p2p.connections:
                             if p != self.s:
                                 p.send(serialized_message)
-                                time.sleep(0.1)
+                                #time.sleep(0.1)
                         
                     elif self.intermediate_node == True:
                         number = message["N"]
@@ -269,9 +271,14 @@ class Peer:
                         self.elgamal_key = message["key"]
                         self.file_format = message["format"]
                         self.packet_buffer.append(message['PACKET'])
-                        self.send_linear_combinations(self.s)
+                        #print(f"NUMBER: {self.number_of_packets_2}")
+                        #print(f"LEN(PACKET_BUFFER): {len(self.packet_buffer)}")
+                        #print("--------")
+                        self.send_linear_combinations(self.s, self.packet_buffer)
+                        
+
         except OSError:
-            print(f"Peer {self.s} disconncted")
+            print(f"Peer {self.s.getpeername()} disconncted")
         
     def handle(self, conn, a):
         """ Handle the all connections (execpt the First).
@@ -295,20 +302,20 @@ class Peer:
                     msglen = int(msg[:HEADERSIZE])
                     new_msg = False
                 full_msg += msg
-                    
+
                 if len(full_msg)-HEADERSIZE == msglen:
                     message = pickle.loads(full_msg[HEADERSIZE:])
                     new_msg = True
                     full_msg = b''
 
                     print(f"Nachricht von {a}")
-                    #print(message)
                     is_lc = message["LC"]
+                    
+                    #self.packet_buffer.append(message['PACKET'])
                     if is_lc == 1:
                         # We have a linear combination
                         self.decode_linear_combinations(message)
-
-
+                
                     elif self.intermediate_node == False:
                         # just keep sending normal packets
                         number_packets = message["N"]
@@ -321,20 +328,27 @@ class Peer:
                             Message.format = message["format"]
                             Message.message = self.dec_list
                             Message.message_ready = True
+                            self.packet_buffer = []
+                            self.matrix = []
+                            self.dec_list = []
                         for p in p2p.connections:
                             if p != conn:
                                 p.send(serialized_message)
-                                time.sleep(0.1)
+                                #time.sleep(0.1)
                     
                     elif self.intermediate_node == True:
                         number = message["N"]
                         if number != self.number_of_packets_2:
                             self.number_of_packets_2 += number
-                        #print("NUMBER_2:  ", self.number_of_packets_2)
                         self.elgamal_key = message["key"]
                         self.file_format = message["format"]
                         self.packet_buffer.append(message['PACKET'])
-                        self.send_linear_combinations(conn)
+                        #print(f"NUMBER: {self.number_of_packets_2}")
+                        #print(f"LEN(PACKET_BUFFER): {len(self.packet_buffer)}")
+                        #print("--------")
+                        self.send_linear_combinations(conn, self.packet_buffer)
+
+
 
         except OSError as e:
             print(f"Peer {conn} disconnected")

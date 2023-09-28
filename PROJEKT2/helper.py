@@ -1,6 +1,3 @@
-class ServerRunning:
-    isRunning = False
-
 class p2p:
     peer_list = ['127.0.0.1']
     peers = []

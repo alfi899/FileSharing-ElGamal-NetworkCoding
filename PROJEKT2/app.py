@@ -1,7 +1,5 @@
 import argparse
 import itertools
-import json
-import random
 import os
 import pickle
 import sys
@@ -13,10 +11,9 @@ from tkinter import filedialog as fd
 from CTkTable import *
 import numpy as np
 import socket
-import sympy
 from elgamal import Gamal
 
-from helper import p2p, ServerRunning, Message
+from helper import p2p, Message
 from server import StartGenesisNode
 from node import Peer
 
@@ -44,7 +41,6 @@ class App2(customtkinter.CTk):
 
         self.filename = ""
         self.elgamal = Gamal()
-        #self.my_public_key = self.elgamal.h
         self.file_format = ""
         self.new_filename = ""
         self.packet_number = ""
@@ -55,9 +51,7 @@ class App2(customtkinter.CTk):
         self.active = threading.Event()
     
 
-        self.prime_number_q = 911
-        self.prime_number_p = 2*self.prime_number_q + 1
-
+        
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
         
@@ -79,8 +73,7 @@ class App2(customtkinter.CTk):
             
             
         def back_to_home_from_S():
-            #self.send_frame.grid_forget()
-            self.send_frame.destroy()
+            self.send_frame.grid_forget()
             self.home_frame.grid(row=0, column=1, sticky="nsew")
 
         def back_to_home_from_R():
@@ -159,14 +152,15 @@ class App2(customtkinter.CTk):
                 3. Send the encrypted packets out
 
             """
-            packet_size = 128
+            packet_size = 64 #128
             packets = split_file_into_packets(self.filename, packet_size)
             padded_packets = pad_packets(packets, packet_size)
 
             # Encrypt every package using elgamal encryption and send them through the network
+            ### test(send message 5 times)
+            #for k in range(0, 2):
             for i in range(0, len(padded_packets)):
                 c1, c2 = self.elgamal.encryption(padded_packets[i])
-                #print("ENC:  ", (c1, c2))
                 send_formated({"PACKET": (c1, c2), "LC": 0, "key": self.elgamal.private_key, "p": self.elgamal.p, "format": self.file_format, "N": len(padded_packets)}, i, len(padded_packets))
                 time.sleep(0.2)
 
@@ -191,7 +185,9 @@ class App2(customtkinter.CTk):
                 Convert them back to byte representation
             """
             #print(Message.message)
+            #print("LEN: ", len(Message.message))
             s = list(itertools.chain.from_iterable(Message.message))
+            s = [int(x) for x in s]
             res = []
             file = []
             for i in range(0, len(s)):
@@ -209,14 +205,13 @@ class App2(customtkinter.CTk):
                 file.write(reconstruct_data)
 
             print("[*] Data has successfull been written to the file")
+            Message.message = []
            
 
 
         def send_file_to_all_peers():
             send_message()
-            # After the message was sended destroy the button
-            #send_button.destroy()
-            #file_sended.grid(row=1, column=1, padx=180, pady=40)
+            
 
             
 
